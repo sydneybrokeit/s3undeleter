@@ -15,3 +15,4 @@ Remove delete markers from a versioned S3 bucket
 * `bucket`
 * `requestThreads`
 * `prefix` - s3 prefix to search
+* `debug` - bool, print debug messages

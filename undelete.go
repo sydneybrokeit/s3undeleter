@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	log "github.com/sirupsen/logrus"
+	"time"
 )
 
 var region = flag.String("region", "us-east-1", "region bucket is in")
@@ -73,7 +74,9 @@ func SendDeleteRequestsLoop(versions chan s3.ObjectIdentifier, done chan bool, e
 		select {
 		case version := <- versions:
 			deletes += 1
+			log.Debugf("currently at %d of 1000 objects to delete", deletes)
 			objects = append(objects, &version)
+			log.Debugf("%v", objects)
 			if deletes >= 1000 {
 				err := DeleteItems(objects)
 				if err != nil {
@@ -86,6 +89,16 @@ func SendDeleteRequestsLoop(versions chan s3.ObjectIdentifier, done chan bool, e
 			err :=DeleteItems(objects)
 			if err != nil {
 				log.Warnf("failed to delete objects %s", err)
+			}
+			end <- true
+			return
+		case <- time.After(1 * time.Minute):
+			if len(objects) != 0 {
+				err := DeleteItems(objects)
+				if err != nil {
+					log.Warnf("failed to delete objects %s", err)
+					log.Warnf("%v", objects)
+				}
 			}
 			end <- true
 			return
@@ -108,7 +121,7 @@ var pageCount = 0
 // send the pages from the ListObjectVersionPages response to a channel for threaded processing
 func SendPagesToChannel(page *s3.ListObjectVersionsOutput, lastPage bool) bool {
 	pageCount += 1
-	log.Debug("sending page %d", pageCount)
+	log.Debugf("sending page %d", pageCount)
 	pageChan <- page
 	// if we're processing the last page, send a done message for each thread doing the processing
 	if lastPage {
@@ -124,11 +137,13 @@ func GetDeleteMarkers(pages chan *s3.ListObjectVersionsOutput, versions chan s3.
 	for {
 		select {
 		case page := <-pages:
+			log.Debugf("received page")
 			for _, deleteMarker := range page.DeleteMarkers {
 				object := s3.ObjectIdentifier{
 					Key:       deleteMarker.Key,
 					VersionId: deleteMarker.VersionId,
 				}
+				log.Debugf("sending object %v for deletion", object)
 				versions <- object
 			}
 			break
